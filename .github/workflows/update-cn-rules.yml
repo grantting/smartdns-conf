@@ -1,0 +1,47 @@
+name: Update CN Rules for SmartDNS 
+ 
+on:
+  schedule:
+    - cron: '0 3 * * *'  # 每天 UTC 时间 3 点运行 
+  workflow_dispatch:    # 允许手动触发 
+ 
+jobs:
+  update-cn-rules:
+    runs-on: ubuntu-latest 
+    
+    steps:
+    - name: Checkout repository 
+      uses: actions/checkout
+      
+    - name: Download and process rules 
+      run: |
+        # 创建临时目录 
+        mkdir -p temp 
+        
+        # 下载三个列表文件 
+        curl -s "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/direct-list.txt"  -o temp/direct-list.txt  
+        curl -s "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/apple-cn.txt"  -o temp/apple-cn.txt  
+        curl -s "https://cdn.jsdelivr.net/gh/Loyalsoldier/v2ray-rules-dat@release/google-cn.txt"  -o temp/google-cn.txt  
+        
+        # 处理文件：去除 full: 前缀，添加 cn 组，去重 
+        for file in temp/*.txt; do 
+          # 去除 full: 前缀，添加 nameserver /cn/，去重 
+          sed 's/^full://g' "$file" | sed '/^$/d' | sed '/^#/d' | awk '!seen[$0]++ {print "nameserver /" $0 "/cn"}' >> temp/combined.tmp  
+        done 
+        
+        # 创建最终的 cn.conf  文件 
+        echo "# Auto-generated CN rules for SmartDNS" > cn.conf  
+        echo "# Updated at $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> cn.conf  
+        echo "" >> cn.conf  
+        cat temp/combined.tmp  >> cn.conf  
+        
+        # 清理临时文件 
+        rm -rf temp 
+        
+    - name: Commit changes 
+      run: |
+        cd smartdns-conf 
+        git config --global user.name  "GitHub Actions"
+        git config --global user.email  "actions@github.com" 
+        git add cn.conf  
+        git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update CN rules [skip ci]" && git push) 
